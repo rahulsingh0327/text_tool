@@ -1,66 +1,86 @@
 from server import mcp
-import requests
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 
-def _fetch_weather_openweathermap(city: str, api_key: str) -> Dict[str, Any]:
+def text_word_count(text: str) -> int:
     """
-    Fetch basic weather information for a given city using OpenWeatherMap API.
+    Count words in text using simple whitespace splitting.
 
     Args:
-        city: City name or 'city,country' string (e.g., 'London,UK').
-        api_key: OpenWeatherMap API key.
+        text: Input text.
 
     Returns:
-        Parsed JSON response containing weather data.
+        Integer word count.
 
-    Raises:
-        RuntimeError: If the HTTP request fails or the API returns an error.
+    Semantic use:
+        Useful for heuristics and quick metadata extraction for documents.
     """
-    url = "https://api.openweathermap.org/data/2.5/weather"
-    params = {"q": city, "appid": api_key, "units": "metric"}
-    resp = requests.get(url, params=params, timeout=10)
-    if resp.status_code != 200:
-        raise RuntimeError(f"Weather API error: {resp.status_code} {resp.text}")
-    return resp.json()
+    return len([w for w in text.split() if w.strip()])
+
+
+def text_summary_simple(text: str, max_sentences: int = 2) -> str:
+    """
+    Produce a very simple extractive summary by taking the first `max_sentences` sentences.
+
+    Args:
+        text: Input text to summarize.
+        max_sentences: Number of sentences to return (default 2).
+
+    Returns:
+        Extractive summary string.
+
+    Note:
+        Lightweight; not an ML summarizer, but useful as a quick heuristic in pipelines.
+    """
+    import re
+    sentences = re.split(r'(?<=[\.\!\?])\s+', text.strip())
+    sentences = [s for s in sentences if s]
+    return " ".join(sentences[:max_sentences])
+
+
+def text_keywords_simple(text: str, top_n: int = 5) -> List[str]:
+    """
+    Extract simple keyword candidates by frequency after lowercasing and removing short tokens.
+
+    Args:
+        text: Input text.
+        top_n: Number of top tokens to return.
+
+    Returns:
+        List of keyword strings.
+
+    Note:
+        Simple heuristic; suitable for quick tagging or pre-filtering before heavy NLP.
+    """
+    import re
+    tokens = [t.lower() for t in re.findall(r"[a-zA-Z0-9']+", text)]
+    tokens = [t for t in tokens if len(t) > 2]
+    from collections import Counter
+    freq = Counter(tokens)
+    return [t for t, _ in freq.most_common(top_n)]
 
 
 @mcp.tool()
-def weather(city: str, provider: str = "openweathermap", api_key: str = "") -> Dict[str, Any]:
+def text_tool(action: str, text: str = "", top_n: int = 5) -> Dict[str, Any]:
     """
-    Get current weather for a city.
-
-    Supports providers:
-        - "openweathermap" (requires `api_key` argument with an OpenWeatherMap key)
+    Text processing tool with simple operations: count, summary, keywords.
 
     Args:
-        city: City name (e.g., "Mumbai" or "Mumbai,IN").
-        provider: Weather provider identifier.
-        api_key: API key string for provider (if required).
+        action: One of ["count", "summary", "keywords"].
+        text: Input text to process.
+        top_n: For keywords action, number of keywords to return.
 
     Returns:
-        Dictionary with temperature (C), humidity (%), condition (text), and raw provider response.
-
-    Raises:
-        RuntimeError on missing dependency or provider errors.
+        Dictionary with action result.
 
     Semantic description:
-        Returns a compact weather summary and raw payload; good for RAG/weather automations.
+        Lightweight NLP helpers used for metadata extraction and quick embeddings.
     """
-    provider = provider.lower()
-    if provider == "openweathermap":
-        if not api_key:
-            raise RuntimeError("OpenWeatherMap provider requires `api_key` argument.")
-        data = _fetch_weather_openweathermap(city, api_key)
-        main = data.get("main", {})
-        weather_desc = (data.get("weather") or [{}])[0].get("description", "")
-        return {
-            "city": city,
-            "temperature_c": main.get("temp"),
-            "humidity": main.get("humidity"),
-            "condition": weather_desc,
-            "raw": data
-        }
-    else:
-        raise RuntimeError(f"Unsupported weather provider: {provider}")
-
+    action = action.lower()
+    if action == "count":
+        return {"word_count": text_word_count(text)}
+    if action == "summary":
+        return {"summary": text_summary_simple(text)}
+    if action == "keywords":
+        return {"keywords": text_keywords_simple(text, top_n)}
+    raise ValueError("Unsupported action. Use count/summary/keywords.")
